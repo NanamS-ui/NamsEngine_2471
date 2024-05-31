@@ -10,6 +10,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.lang.reflect.Method;
 import java.util.HashMap;
 
 public class FrontController extends HttpServlet {
@@ -38,9 +39,23 @@ public class FrontController extends HttpServlet {
         if (hashMap != null) {
             Mapping mapping = hashMap.get(url);
             if (mapping != null) {
-                out.println("URL: " + url);
-                out.println("Method associated: " + mapping.getMethodName());
-                out.println("With the class: " + mapping.getClassName());
+                try {
+                    Class<?> clazz = Class.forName(mapping.getClassName());
+                    Method method = clazz.getDeclaredMethod(mapping.getMethodName());
+
+                    Object instance = clazz.getDeclaredConstructor().newInstance();
+
+                    Object result = method.invoke(instance);
+
+                    out.println("URL: " + url);
+                    out.println("Method associated: " + mapping.getMethodName());
+                    out.println("With the class: " + mapping.getClassName());
+                    out.println("Result: " + result.toString());
+
+                } catch (Exception e) {
+                    out.println("Error invoking method: " + e.getMessage());
+                    e.printStackTrace(out);
+                }
             } else {
                 out.println("No mapping found for URL: " + url);
             }
