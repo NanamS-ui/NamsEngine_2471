@@ -61,7 +61,7 @@ public class Scan {
                             for (Method method : methods) {
                                 if (method.isAnnotationPresent(Get.class)) {
                                     Get get = method.getAnnotation(Get.class);
-                                    hMap.put(get.value(), new Mapping(clazz.getName(), method.getName()));
+                                    hMap.put(get.value(), new Mapping(method.getName(), clazz.getName()));
                                     System.out.println("Mapping added: " + get.value() + " -> " + clazz.getName() + "."
                                             + method.getName());
                                 }
