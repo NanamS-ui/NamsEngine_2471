@@ -2,8 +2,10 @@ package controller;
 
 import annotation.AnnotationController;
 import utils.Mapping;
+import utils.ModelView;
 import utils.Scan;
 
+import javax.servlet.RequestDispatcher; // Importing RequestDispatcher
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
@@ -14,7 +16,7 @@ import java.lang.reflect.Method;
 import java.util.HashMap;
 
 public class FrontController extends HttpServlet {
-    HashMap<String, Mapping> hashMap;
+    private HashMap<String, Mapping> hashMap;
 
     @Override
     public void init() throws ServletException {
@@ -23,7 +25,7 @@ public class FrontController extends HttpServlet {
             hashMap = Scan.getAllClassSelonAnnotation2(this, packageName, AnnotationController.class);
             System.out.println("Initialization completed. HashMap size: " + hashMap.size());
         } catch (Exception e) {
-            System.out.println("Initialization error: " + e.getMessage());
+            System.err.println("Initialization error: " + e.getMessage());
             e.printStackTrace();
         }
     }
@@ -46,12 +48,21 @@ public class FrontController extends HttpServlet {
                     Object instance = clazz.getDeclaredConstructor().newInstance();
 
                     Object result = method.invoke(instance);
-
-                    out.println("URL: " + url);
-                    out.println("Method associated: " + mapping.getMethodName());
-                    out.println("With the class: " + mapping.getClassName());
-                    out.println("Result: " + result.toString());
-
+                    if (result instanceof ModelView) {
+                        ModelView modelView = (ModelView) result;
+                        RequestDispatcher dispatch = request.getRequestDispatcher(modelView.getUrl());
+                        HashMap<String, Object> data = modelView.getData();
+                        for (String keyData : data.keySet()) {
+                            request.setAttribute(keyData, data.get(keyData));
+                            out.println(keyData);
+                            out.println(data.get(keyData));
+                        }
+                        dispatch.forward(request, response);
+                    } else if (result instanceof String) {
+                        out.println(result.toString());
+                    } else {
+                        out.println("Tsisy methode");
+                    }
                 } catch (Exception e) {
                     out.println("Error invoking method: " + e.getMessage());
                     e.printStackTrace(out);
@@ -60,7 +71,7 @@ public class FrontController extends HttpServlet {
                 out.println("No mapping found for URL: " + url);
             }
         } else {
-            out.println("HashMap is null");
+            out.println("HashMap is null. Initialization may have failed.");
         }
     }
 
