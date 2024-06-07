@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.lang.reflect.Method;
 import java.util.HashMap;
+import exception.*;
 
 public class FrontController extends HttpServlet {
     private HashMap<String, Mapping> hashMap;
@@ -24,9 +25,8 @@ public class FrontController extends HttpServlet {
             String packageName = this.getInitParameter("nom_package");
             hashMap = Scan.getAllClassSelonAnnotation2(this, packageName, AnnotationController.class);
             System.out.println("Initialization completed. HashMap size: " + hashMap.size());
-        } catch (Exception e) {
-            System.err.println("Initialization error: " + e.getMessage());
-            e.printStackTrace();
+        } catch (PackageNotFoundException e) {
+            throw new ServletException("Initialization error - Package not found: " + e.getMessage(), e);
         }
     }
 

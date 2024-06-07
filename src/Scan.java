@@ -8,6 +8,7 @@ import javax.servlet.http.*;
 
 import annotation.Get;
 import utils.Mapping;
+import exception.*;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -43,12 +44,16 @@ public class Scan {
     }
 
     public static HashMap<String, Mapping> getAllClassSelonAnnotation2(HttpServlet servlet, String packageName,
-            Class<?> annotation) throws Exception {
+            Class<?> annotation) throws PackageNotFoundException {
         HashMap<String, Mapping> hMap = new HashMap<>();
         try {
             String path = servlet.getClass().getClassLoader().getResource(packageName.replace('.', '/')).getPath();
             String decodedPath = URLDecoder.decode(path, "UTF-8");
             File packageDir = new File(decodedPath);
+
+            if (!packageDir.exists() || !packageDir.isDirectory()) {
+                throw new PackageNotFoundException("Package directory does not exist: " + packageName);
+            }
 
             File[] files = packageDir.listFiles();
             if (files != null) {
@@ -61,6 +66,10 @@ public class Scan {
                             for (Method method : methods) {
                                 if (method.isAnnotationPresent(Get.class)) {
                                     Get get = method.getAnnotation(Get.class);
+                                    for (String key : hMap.keySet()) {
+                                        if (get.value().equals(key))
+                                            throw new Exception("Duplicate url : " + get.value());
+                                    }
                                     hMap.put(get.value(), new Mapping(method.getName(), clazz.getName()));
                                     System.out.println("Mapping added: " + get.value() + " -> " + clazz.getName() + "."
                                             + method.getName());
@@ -71,8 +80,10 @@ public class Scan {
                 }
             }
         } catch (Exception e) {
-            throw new Exception("Error scanning package: " + e.getMessage(), e);
+            e.printStackTrace();
+            throw new PackageNotFoundException(e.getMessage());
         }
         return hMap;
     }
+
 }
