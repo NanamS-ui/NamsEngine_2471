@@ -1,11 +1,11 @@
 package controller;
 
-import annotation.AnnotationController;
+import annotation.*;
 import utils.Mapping;
 import utils.ModelView;
-import utils.Scan;
+import utils.*;
 
-import javax.servlet.RequestDispatcher; // Importing RequestDispatcher
+import javax.servlet.RequestDispatcher;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
@@ -32,46 +32,68 @@ public class FrontController extends HttpServlet {
 
     protected void processRequest(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
-        response.setContentType("text/plain");
+        response.setContentType("text/html;charset=UTF-8");
         PrintWriter out = response.getWriter();
 
-        String url = request.getRequestURI().substring(request.getContextPath().length());
-        System.out.println("Request URI: " + url);
+        String requestURI = request.getRequestURI();
+        String contextPath = request.getContextPath();
+        String url = requestURI.substring(contextPath.length());
+
+        if (url.contains("?")) {
+            int index = url.indexOf("?");
+            String basePath = url.substring(0, index);
+            url = basePath;
+        }
 
         if (hashMap != null) {
             Mapping mapping = hashMap.get(url);
             if (mapping != null) {
                 try {
                     Class<?> clazz = Class.forName(mapping.getClassName());
-                    Method method = clazz.getDeclaredMethod(mapping.getMethodName());
+                    Method method = null;
+
+                    for (Method m : clazz.getDeclaredMethods()) {
+                        if (m.getName().equals(mapping.getMethodName())) {
+                            method = m;
+                            break;
+                        }
+                    }
+
+                    if (method == null) {
+                        throw new NoSuchMethodException(
+                                "Method " + mapping.getMethodName() + " not found in " + clazz.getName());
+                    }
 
                     Object instance = clazz.getDeclaredConstructor().newInstance();
+                    Object[] parameterValues = Utils.getParameterValues(request, method, Param.class);
 
-                    Object result = method.invoke(instance);
+                    Object result = method.invoke(instance, parameterValues);
                     if (result instanceof ModelView) {
                         ModelView modelView = (ModelView) result;
                         RequestDispatcher dispatch = request.getRequestDispatcher(modelView.getUrl());
                         HashMap<String, Object> data = modelView.getData();
                         for (String keyData : data.keySet()) {
                             request.setAttribute(keyData, data.get(keyData));
-                            out.println(keyData);
-                            out.println(data.get(keyData));
+                            System.out.println("Clé :" + keyData);
+                            System.out.println("Data :" + data.get(keyData));
                         }
                         dispatch.forward(request, response);
                     } else if (result instanceof String) {
                         out.println(result.toString());
                     } else {
-                        out.println("Tsisy methode");
+                        out.println("Unsupported return type from controller method.");
                     }
                 } catch (Exception e) {
+                    response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
                     out.println("Error invoking method: " + e.getMessage());
                     e.printStackTrace(out);
                 }
             } else {
-                out.println("No mapping found for URL: " + url);
+                response.sendError(HttpServletResponse.SC_NOT_FOUND, "No mapping found for URL: " + url);
             }
         } else {
-            out.println("HashMap is null. Initialization may have failed.");
+            response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
+                    "HashMap is null. Initialization may have failed.");
         }
     }
 
