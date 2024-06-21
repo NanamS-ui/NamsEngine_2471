@@ -35,15 +35,8 @@ public class FrontController extends HttpServlet {
         response.setContentType("text/html;charset=UTF-8");
         PrintWriter out = response.getWriter();
 
-        String requestURI = request.getRequestURI();
-        String contextPath = request.getContextPath();
-        String url = requestURI.substring(contextPath.length());
-
-        if (url.contains("?")) {
-            int index = url.indexOf("?");
-            String basePath = url.substring(0, index);
-            url = basePath;
-        }
+        String url = request.getRequestURI().substring(request.getContextPath().length());
+        System.out.println("Request URI: " + url);
 
         if (hashMap != null) {
             Mapping mapping = hashMap.get(url);
@@ -65,7 +58,8 @@ public class FrontController extends HttpServlet {
                     }
 
                     Object instance = clazz.getDeclaredConstructor().newInstance();
-                    Object[] parameterValues = Utils.getParameterValues(request, method, Param.class);
+                    Object[] parameterValues = Utils.getParameterValues(request, method, Param.class,
+                            ParamObject.class);
 
                     Object result = method.invoke(instance, parameterValues);
                     if (result instanceof ModelView) {
@@ -74,8 +68,7 @@ public class FrontController extends HttpServlet {
                         HashMap<String, Object> data = modelView.getData();
                         for (String keyData : data.keySet()) {
                             request.setAttribute(keyData, data.get(keyData));
-                            System.out.println("Clé :" + keyData);
-                            System.out.println("Data :" + data.get(keyData));
+                            System.out.println(keyData);
                         }
                         dispatch.forward(request, response);
                     } else if (result instanceof String) {
