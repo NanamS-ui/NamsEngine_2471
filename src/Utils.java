@@ -38,9 +38,12 @@ public class Utils {
                     throw new RuntimeException("Failed to create and populate parameter object: " + e.getMessage());
                 }
             } else {
+                // throw new Exception(
+                // "ETU002746 Annotation not found");
                 String paramName = parameters[i].getName();
                 String paramValue = request.getParameter(paramName);
-                parameterValues[i] = convertParameterValue(paramValue, parameters[i].getType());
+                parameterValues[i] = convertParameterValue(paramValue,
+                        parameters[i].getType());
             }
         }
         return parameterValues;
