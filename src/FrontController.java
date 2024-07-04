@@ -12,7 +12,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.lang.reflect.Method;
+import java.lang.reflect.*;
 import java.util.HashMap;
 import exception.*;
 
@@ -61,7 +61,20 @@ public class FrontController extends HttpServlet {
                     Object[] parameterValues = Utils.getParameterValues(request, method, Param.class,
                             ParamObject.class);
 
-                    // Initialisation de MySession
+                    // Initialisation de MySession dans un attribut
+                    Field sessionField = null;
+                    for (Field field : clazz.getDeclaredFields()) {
+                        if (field.getType().equals(MySession.class)) {
+                            sessionField = field;
+                            break;
+                        }
+                    }
+                    if (sessionField != null) {
+                        sessionField.setAccessible(true);
+                        sessionField.set(instance, new MySession(request.getSession()));
+                    }
+
+                    // Initialisation de MySession dans un paramètre
                     for (int i = 0; i < parameterValues.length; i++) {
                         if (parameterValues[i] == null && method.getParameterTypes()[i].equals(MySession.class)) {
                             MySession session = new MySession(request.getSession());
