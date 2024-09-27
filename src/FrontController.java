@@ -1,10 +1,8 @@
 package controller;
 
 import annotation.*;
-import utils.Mapping;
-import utils.ModelView;
+import com.google.gson.Gson;
 import utils.*;
-
 import javax.servlet.RequestDispatcher;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
@@ -83,7 +81,19 @@ public class FrontController extends HttpServlet {
                     }
 
                     Object result = method.invoke(instance, parameterValues);
-                    if (result instanceof ModelView) {
+                    if (method.isAnnotationPresent(ResponseBody.class)) {
+                        if (result instanceof ModelView) {
+                            ModelView modelView = (ModelView) result;
+                            HashMap<String, Object> data = modelView.getData();
+                            Gson gson = new Gson();
+                            String jsonResponse = gson.toJson(data);
+                            out.println(jsonResponse);
+                        } else {
+                            Gson gson = new Gson();
+                            String jsonResponse = gson.toJson(result);
+                            out.println(jsonResponse);
+                        }
+                    } else if (result instanceof ModelView) {
                         ModelView modelView = (ModelView) result;
                         RequestDispatcher dispatch = request.getRequestDispatcher(modelView.getUrl());
                         HashMap<String, Object> data = modelView.getData();
