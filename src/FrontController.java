@@ -22,7 +22,7 @@ public class FrontController extends HttpServlet {
     public void init() throws ServletException {
         try {
             String packageName = this.getInitParameter("nom_package");
-            hashMap = Scan.getAllClassSelonAnnotation2(this, packageName, AnnotationController.class);
+            hashMap = Scan.getAllClassSelonAnnotation3(this, packageName, AnnotationController.class);
             System.out.println("Initialization completed. HashMap size: " + hashMap.size());
         } catch (PackageNotFoundException e) {
             throw new ServletException("Initialization error - Package not found: " + e.getMessage(), e);
@@ -44,6 +44,7 @@ public class FrontController extends HttpServlet {
                     Class<?> clazz = Class.forName(mapping.getClassName());
                     Method method = null;
 
+                    // Cherche la méthode dans la classe correspondante
                     for (Method m : clazz.getDeclaredMethods()) {
                         if (m.getName().equals(mapping.getMethodName())) {
                             method = m;
@@ -54,6 +55,16 @@ public class FrontController extends HttpServlet {
                     if (method == null) {
                         throw new NoSuchMethodException(
                                 "Method " + mapping.getMethodName() + " not found in " + clazz.getName());
+                    }
+
+                    // Vérifie si la requête correspond au verbe de la méthode
+                    String requestMethod = request.getMethod();
+                    String methodVerb = mapping.getVerb();
+
+                    if (!methodVerb.equalsIgnoreCase(requestMethod) && !methodVerb.isEmpty()) {
+                        response.sendError(HttpServletResponse.SC_BAD_REQUEST,
+                                "Method not allowed: " + requestMethod + " for URL: " + url);
+                        return;
                     }
 
                     Object instance = clazz.getDeclaredConstructor().newInstance();
