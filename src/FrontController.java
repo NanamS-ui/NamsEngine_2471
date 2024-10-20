@@ -13,6 +13,7 @@ import java.io.PrintWriter;
 import java.lang.reflect.*;
 import java.util.HashMap;
 import exception.*;
+import javax.servlet.http.Part;
 import com.google.gson.Gson;
 
 public class FrontController extends HttpServlet {
@@ -70,6 +71,17 @@ public class FrontController extends HttpServlet {
                     Object instance = clazz.getDeclaredConstructor().newInstance();
                     Object[] parameterValues = Utils.getParameterValues(request, method, Param.class,
                             ParamObject.class);
+
+                    if (request.getContentType() != null && request.getContentType().startsWith("multipart/")) {
+                        for (int i = 0; i < parameterValues.length; i++) {
+                            if (parameterValues[i] == null && method.getParameterTypes()[i].equals(MyMultiPart.class)) {
+                                Part filePart = request.getPart(method.getParameters()[i].getName());
+                                if (filePart != null) {
+                                    parameterValues[i] = new MyMultiPart(filePart);
+                                }
+                            }
+                        }
+                    }
 
                     // Initialisation de MySession dans un attribut
                     Field sessionField = null;
