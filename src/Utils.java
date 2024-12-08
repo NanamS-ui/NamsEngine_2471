@@ -1,30 +1,22 @@
 package utils;
 
-import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.*;
 import javax.servlet.ServletException;
 import javax.servlet.http.Part;
+import javax.servlet.*;
+
 import annotation.*;
 import annotation.ValidationAnnotations.*;
 import exception.*;
 import java.lang.reflect.*;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.io.*;
 
 public class Utils {
-
-    /**
-     * Récupère les valeurs des paramètres à partir d'une requête HTTP et d'une
-     * méthode cible.
-     * 
-     * @param request                    La requête HTTP.
-     * @param method                     La méthode cible.
-     * @param paramAnnotationClass       Classe de l'annotation @Param.
-     * @param paramObjectAnnotationClass Classe de l'annotation @ParamObject.
-     * @return Un tableau contenant les valeurs des paramètres.
-     */
-    public static Object[] getParameterValues(HttpServletRequest request, Method method,
-            Class<Param> paramAnnotationClass,
-            Class<ParamObject> paramObjectAnnotationClass) {
+    public static Object[] getParameterValues(HttpServletRequest request, HttpServletResponse response, Method method,
+            Class<Param> paramAnnotationClass, Class<ParamObject> paramObjectAnnotationClass) {
         Parameter[] parameters = method.getParameters();
         Object[] parameterValues = new Object[parameters.length];
 
@@ -33,7 +25,8 @@ public class Utils {
                 if (parameters[i].isAnnotationPresent(paramAnnotationClass)) {
                     handleParamAnnotation(request, parameters, parameterValues, i, paramAnnotationClass);
                 } else if (parameters[i].isAnnotationPresent(paramObjectAnnotationClass)) {
-                    handleParamObjectAnnotation(request, parameters, parameterValues, i, paramObjectAnnotationClass);
+                    handleParamObjectAnnotation(request, response, parameters, parameterValues, i,
+                            paramObjectAnnotationClass, method);
                 } else {
                     handleUnannotatedParameter(request, parameters, parameterValues, i);
                 }
@@ -45,9 +38,6 @@ public class Utils {
         return parameterValues;
     }
 
-    /**
-     * Gère les paramètres annotés avec @Param.
-     */
     private static void handleParamAnnotation(HttpServletRequest request, Parameter[] parameters,
             Object[] parameterValues, int index, Class<Param> paramAnnotationClass)
             throws Exception {
@@ -65,45 +55,62 @@ public class Utils {
         }
     }
 
-    /**
-     * Gère les paramètres annotés avec @ParamObject.
-     */
-    private static void handleParamObjectAnnotation(HttpServletRequest request, Parameter[] parameters,
-            Object[] parameterValues, int index,
-            Class<ParamObject> paramObjectAnnotationClass)
-            throws Exception {
-        ParamObject paramObject = parameters[index].getAnnotation(paramObjectAnnotationClass);
-        String objName = paramObject.objName();
+    private static void handleParamObjectAnnotation(HttpServletRequest request, HttpServletResponse response,
+            Parameter[] parameters, Object[] parameterValues, int index, Class<ParamObject> paramObjectAnnotationClass,
+            Method method) throws Exception {
+        ParamObject paramObjectAnnotation = parameters[index].getAnnotation(paramObjectAnnotationClass);
+        String objName = paramObjectAnnotation.objName();
+
         Object paramObjectInstance = parameters[index].getType().getDeclaredConstructor().newInstance();
+
+        Map<String, String> fieldValues = new HashMap<>();
+        Map<String, String> validationErrors = new HashMap<>();
 
         Field[] fields = parameters[index].getType().getDeclaredFields();
         for (Field field : fields) {
             String paramValue = request.getParameter(objName + "." + field.getName());
+            fieldValues.put(field.getName(), paramValue);
+            field.setAccessible(true);
+
             if (paramValue != null) {
-                field.setAccessible(true);
-                if (field.getType().equals(Integer.class) || field.getType().equals(Double.class)) {
-                    validate(paramObjectInstance);
-                }
                 field.set(paramObjectInstance, convertParameterValue(paramValue, field.getType()));
             }
         }
 
-        validate(paramObjectInstance);
+        try {
+            validationErrors = validate(paramObjectInstance);
+        } catch (ValidationException e) {
+            throw new Exception("Erreur de validation : " + e.getMessage(), e);
+        }
+
+        if (!validationErrors.isEmpty()) {
+            request.setAttribute("errors", validationErrors);
+            request.setAttribute("values", fieldValues);
+
+            OnError onError = method.getAnnotation(OnError.class);
+            if (onError != null) {
+                String errorUrl = onError.url();
+                HttpServletRequest wrappedRequest = new HttpServletRequestWrapper(request) {
+                    @Override
+                    public String getMethod() {
+                        return "GET";
+                    }
+                };
+                RequestDispatcher dispatcher = request.getRequestDispatcher(errorUrl);
+                dispatcher.forward(wrappedRequest, response);
+                return;
+            }
+        }
+
         parameterValues[index] = paramObjectInstance;
     }
 
-    /**
-     * Gère les paramètres non annotés.
-     */
     private static void handleUnannotatedParameter(HttpServletRequest request, Parameter[] parameters,
             Object[] parameterValues, int index) {
         String paramValue = request.getParameter(parameters[index].getName());
         parameterValues[index] = convertParameterValue(paramValue, parameters[index].getType());
     }
 
-    /**
-     * Convertit une valeur de paramètre en un type approprié.
-     */
     private static Object convertParameterValue(String value, Class<?> type) {
         if (type == String.class)
             return value;
@@ -129,28 +136,32 @@ public class Utils {
         return null;
     }
 
-    /**
-     * Valide un objet en fonction des annotations de validation appliquées à ses
-     * champs.
-     */
-    public static void validate(Object object) throws ValidationException {
-        if (object == null)
-            throw new ValidationException("L'objet à valider ne peut pas être nul.");
+    public static Map<String, String> validate(Object object) throws ValidationException {
+        Map<String, String> errors = new HashMap<>();
 
-        for (Field field : object.getClass().getDeclaredFields()) {
+        Field[] fields = object.getClass().getDeclaredFields();
+        for (Field field : fields) {
             field.setAccessible(true);
             try {
                 Object value = field.get(object);
-                validateField(field, value);
+
+                if (value == null || value.toString().trim().isEmpty()) {
+                    errors.put(field.getName(), "Le champ " + field.getName() + " est requis.");
+                }
+
+                try {
+                    validateField(field, value);
+                } catch (ValidationException e) {
+                    errors.put(field.getName(), e.getMessage());
+                }
             } catch (IllegalAccessException e) {
-                throw new ValidationException("Erreur d'accès au champ : " + field.getName(), e);
+                throw new ValidationException("Erreur lors de l'accès au champ " + field.getName(), e);
             }
         }
+
+        return errors;
     }
 
-    /**
-     * Valide un champ individuel.
-     */
     private static void validateField(Field field, Object value) throws ValidationException {
         if (field.isAnnotationPresent(NotNull.class) && value == null) {
             throw new ValidationException(field.getAnnotation(NotNull.class).message());
