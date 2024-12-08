@@ -3,7 +3,7 @@ package controller;
 import annotation.*;
 import annotation.ValidationAnnotations.*;
 import utils.*;
-import exception.ValidationException;
+
 import com.google.gson.Gson;
 import exception.*;
 
@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.lang.reflect.*;
 import java.util.HashMap;
+import java.util.Map;
 
 @MultipartConfig(fileSizeThreshold = 1024 * 1024 * 10, maxFileSize = 1024 * 1024 * 50, maxRequestSize = 1024 * 1024
         * 100)
@@ -63,7 +64,9 @@ public class FrontController extends HttpServlet {
 
                 Object instance = clazz.getDeclaredConstructor().newInstance();
                 injectSession(instance, request);
-                Object[] parameterValues = Utils.getParameterValues(request, method, Param.class, ParamObject.class);
+
+                Object[] parameterValues = Utils.getParameterValues(request, response, method, Param.class,
+                        ParamObject.class);
 
                 Object result = method.invoke(instance, parameterValues);
 
@@ -109,24 +112,41 @@ public class FrontController extends HttpServlet {
     }
 
     private void handleResponse(Object result, HttpServletRequest request, HttpServletResponse response,
-            PrintWriter out,
-            Method method) throws IOException, ServletException {
+            PrintWriter out, Method method) throws IOException, ServletException {
         if (method.isAnnotationPresent(ResponseBody.class)) {
             Gson gson = new Gson();
             String jsonResponse = gson.toJson(result);
+            response.setContentType("application/json;charset=UTF-8");
             out.println(jsonResponse);
-        } else if (result instanceof ModelView) {
+            return;
+        }
+
+        if (result instanceof ModelView) {
             ModelView modelView = (ModelView) result;
-            RequestDispatcher dispatcher = request.getRequestDispatcher(modelView.getUrl());
             HashMap<String, Object> data = modelView.getData();
             for (String key : data.keySet()) {
                 request.setAttribute(key, data.get(key));
             }
+            dispatchToPage(modelView.getUrl(), request, response);
+            return;
+        }
+
+        if (result instanceof String) {
+            String pageUrl = (String) result;
+            dispatchToPage(pageUrl, request, response);
+            return;
+        }
+
+        response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Unsupported return type.");
+    }
+
+    private void dispatchToPage(String pageUrl, HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        if (pageUrl != null && !pageUrl.isEmpty()) {
+            RequestDispatcher dispatcher = request.getRequestDispatcher(pageUrl);
             dispatcher.forward(request, response);
-        } else if (result instanceof String) {
-            out.println(result.toString());
         } else {
-            response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Unsupported return type.");
+            response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Page URL is null or empty.");
         }
     }
 
@@ -141,5 +161,4 @@ public class FrontController extends HttpServlet {
             throws ServletException, IOException {
         processRequest(request, response);
     }
-
 }
