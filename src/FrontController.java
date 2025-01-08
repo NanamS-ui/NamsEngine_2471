@@ -7,6 +7,7 @@ import utils.*;
 import com.google.gson.Gson;
 import exception.*;
 
+import javax.management.relation.Role;
 import javax.servlet.*;
 import javax.servlet.annotation.MultipartConfig;
 import javax.servlet.http.*;
@@ -20,11 +21,15 @@ import java.util.Map;
         * 100)
 public class FrontController extends HttpServlet {
     private HashMap<String, Mapping> hashMap;
+    private String authValue;
+    private String roleValue;
 
     @Override
     public void init() throws ServletException {
         try {
             String packageName = this.getInitParameter("nom_package");
+            this.authValue = this.getInitParameter("authName");
+            this.roleValue = this.getInitParameter("roleName");
             hashMap = Scan.getAllClassSelonAnnotation3(this, packageName, AnnotationController.class);
             System.out.println("Initialization completed. HashMap size: " + hashMap.size());
         } catch (PackageNotFoundException e) {
@@ -58,6 +63,20 @@ public class FrontController extends HttpServlet {
                     response.sendError(HttpServletResponse.SC_BAD_REQUEST,
                             "Method not found in class: " + clazz.getName());
                     return;
+                }
+                if (method.isAnnotationPresent(Auth.class)) {
+                    if (request.getSession(false).getAttribute(this.authValue) == null) {
+                        response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized action " + url);
+                        return;
+                    }
+                }
+                if (method.isAnnotationPresent(Profil.class)) {
+                    Profil role = method.getAnnotation(Profil.class);
+                    String roleName = role.value();
+                    if (!request.getSession(false).getAttribute(this.roleValue).equals(roleName)) {
+                        response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized action " + url);
+                        return;
+                    }
                 }
 
                 validateRequestVerb(request, mapping.getVerb(), url);
