@@ -1,8 +1,8 @@
 package utils;
 
 import javax.servlet.http.*;
-import javax.servlet.ServletException;
 import javax.servlet.http.Part;
+
 import javax.servlet.*;
 
 import annotation.*;
@@ -10,6 +10,7 @@ import annotation.ValidationAnnotations.*;
 import exception.*;
 import java.lang.reflect.*;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.io.*;
@@ -17,12 +18,19 @@ import java.io.*;
 public class Utils {
     public static Object[] getParameterValues(HttpServletRequest request, HttpServletResponse response, Method method,
             Class<Param> paramAnnotationClass, Class<ParamObject> paramObjectAnnotationClass) {
+
         Parameter[] parameters = method.getParameters();
         Object[] parameterValues = new Object[parameters.length];
 
         for (int i = 0; i < parameters.length; i++) {
             try {
-                if (parameters[i].isAnnotationPresent(paramAnnotationClass)) {
+                Class<?> paramType = parameters[i].getType();
+
+                if (paramType.equals(HttpServletRequest.class)) {
+                    parameterValues[i] = request;
+                } else if (paramType.equals(HttpServletResponse.class)) {
+                    parameterValues[i] = response;
+                } else if (parameters[i].isAnnotationPresent(paramAnnotationClass)) {
                     handleParamAnnotation(request, parameters, parameterValues, i, paramAnnotationClass);
                 } else if (parameters[i].isAnnotationPresent(paramObjectAnnotationClass)) {
                     handleParamObjectAnnotation(request, response, parameters, parameterValues, i,
@@ -35,23 +43,25 @@ public class Utils {
                 throw new RuntimeException("Erreur lors du traitement du paramètre : " + e.getMessage(), e);
             }
         }
+
         return parameterValues;
     }
 
     private static void handleParamAnnotation(HttpServletRequest request, Parameter[] parameters,
-            Object[] parameterValues, int index, Class<Param> paramAnnotationClass)
-            throws Exception {
+            Object[] parameterValues, int index, Class<Param> paramAnnotationClass) throws Exception {
+
         if (request.getContentType() != null && request.getContentType().toLowerCase().startsWith("multipart/")) {
             Part filePart = request.getPart("file");
-            if (filePart != null) {
-                parameterValues[index] = new Fichier(filePart);
-            } else {
-                throw new ServletException("Partie de fichier manquante.");
-            }
+            parameterValues[index] = (filePart != null) ? new Fichier(filePart) : null;
         } else {
             Param param = parameters[index].getAnnotation(paramAnnotationClass);
-            String paramValue = request.getParameter(param.value());
-            parameterValues[index] = convertParameterValue(paramValue, parameters[index].getType());
+            String[] paramValues = request.getParameterValues(param.value());
+
+            if (paramValues == null || paramValues.length == 0) {
+                parameterValues[index] = null;
+            } else {
+                parameterValues[index] = convertParameterValue(paramValues[0], parameters[index].getType());
+            }
         }
     }
 
@@ -112,23 +122,46 @@ public class Utils {
     }
 
     private static Object convertParameterValue(String value, Class<?> type) {
+        if (value == null || value.trim().isEmpty()) {
+            // Si c'est un type primitif, retourner une valeur par défaut
+            if (type.isPrimitive()) {
+                if (type == int.class)
+                    return 0;
+                if (type == long.class)
+                    return 0L;
+                if (type == double.class)
+                    return 0.0;
+                if (type == float.class)
+                    return 0.0f;
+                if (type == short.class)
+                    return (short) 0;
+                if (type == byte.class)
+                    return (byte) 0;
+                if (type == boolean.class)
+                    return false;
+                if (type == char.class)
+                    return '\u0000'; // Caractère vide
+            }
+            return null; // Pour les objets (Integer, String, etc.)
+        }
+
         if (type == String.class)
             return value;
-        if (type == int.class || type == Integer.class)
+        if (type == Integer.class || type == int.class)
             return Integer.parseInt(value);
-        if (type == boolean.class || type == Boolean.class)
+        if (type == Boolean.class || type == boolean.class)
             return Boolean.parseBoolean(value);
-        if (type == long.class || type == Long.class)
+        if (type == Long.class || type == long.class)
             return Long.parseLong(value);
-        if (type == double.class || type == Double.class)
+        if (type == Double.class || type == double.class)
             return Double.parseDouble(value);
-        if (type == float.class || type == Float.class)
+        if (type == Float.class || type == float.class)
             return Float.parseFloat(value);
-        if (type == short.class || type == Short.class)
+        if (type == Short.class || type == short.class)
             return Short.parseShort(value);
-        if (type == byte.class || type == Byte.class)
+        if (type == Byte.class || type == byte.class)
             return Byte.parseByte(value);
-        if (type == char.class || type == Character.class) {
+        if (type == Character.class || type == char.class) {
             if (value.length() != 1)
                 throw new IllegalArgumentException("Valeur de caractère invalide : " + value);
             return value.charAt(0);
@@ -187,6 +220,40 @@ public class Utils {
                 throw new ValidationException(annotation.message().replace("{min}", String.valueOf(annotation.min()))
                         .replace("{max}", String.valueOf(annotation.max())));
             }
+        }
+    }
+
+    public static void generateCsvResponse(List<?> data, String[] fields, String fileName, HttpServletResponse response)
+            throws IOException {
+        response.setContentType("text/csv;charset=UTF-8");
+        response.setHeader("Content-Disposition", "attachment; filename=\"" + fileName + "\"");
+
+        try (BufferedWriter writer = new BufferedWriter(response.getWriter())) {
+            for (int i = 0; i < fields.length; i++) {
+                writer.write(fields[i]);
+                if (i < fields.length - 1)
+                    writer.write(",");
+            }
+            writer.newLine();
+
+            for (Object obj : data) {
+                Class<?> clazz = obj.getClass();
+                for (int i = 0; i < fields.length; i++) {
+                    try {
+                        Field field = clazz.getDeclaredField(fields[i]);
+                        field.setAccessible(true);
+                        Object value = field.get(obj);
+                        writer.write(value != null ? value.toString() : "");
+                    } catch (NoSuchFieldException | IllegalAccessException e) {
+                        writer.write("");
+                    }
+                    if (i < fields.length - 1)
+                        writer.write(",");
+                }
+                writer.newLine();
+            }
+
+            writer.flush();
         }
     }
 }

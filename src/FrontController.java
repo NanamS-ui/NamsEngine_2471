@@ -15,7 +15,9 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.lang.reflect.*;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import NamsEngine_2471.*;
 
 @MultipartConfig(fileSizeThreshold = 1024 * 1024 * 10, maxFileSize = 1024 * 1024 * 50, maxRequestSize = 1024 * 1024
         * 100)
@@ -23,6 +25,7 @@ public class FrontController extends HttpServlet {
     private HashMap<String, Mapping> hashMap;
     private String authValue;
     private String roleValue;
+
 
     @Override
     public void init() throws ServletException {
@@ -40,62 +43,79 @@ public class FrontController extends HttpServlet {
     private void processRequest(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
         response.setContentType("text/html;charset=UTF-8");
-        try (PrintWriter out = response.getWriter()) {
-            String url = request.getRequestURI().substring(request.getContextPath().length());
-            System.out.println("Request URI: " + url);
 
-            if (hashMap == null) {
-                response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
-                        "HashMap is null. Initialization failed.");
-                return;
-            }
+        String url = request.getRequestURI().substring(request.getContextPath().length());
+        System.out.println("Request URI: " + url);
 
-            Mapping mapping = hashMap.get(url);
-            if (mapping == null) {
-                response.sendError(HttpServletResponse.SC_NOT_FOUND, "No mapping found for URL: " + url);
-                return;
-            }
+        if (hashMap == null) {
+            response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
+                    "HashMap is null. Initialization failed.");
+            return;
+        }
 
-            try {
-                Class<?> clazz = Class.forName(mapping.getClassName());
-                Method method = findMethod(clazz, mapping.getMethodName());
-                if (method == null) {
-                    response.sendError(HttpServletResponse.SC_BAD_REQUEST,
-                            "Method not found in class: " + clazz.getName());
+        Mapping mapping = hashMap.get(url);
+        if (mapping == null) {
+            response.sendError(HttpServletResponse.SC_NOT_FOUND, "No mapping found for URL: " + url);
+            return;
+        }
+
+        try {
+            Class<?> clazz = Class.forName(mapping.getClassName());
+
+            if (clazz.isAnnotationPresent(Auth.class)) {
+                if (request.getSession(false).getAttribute(this.authValue) == null) {
+                    response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized action " + url);
                     return;
                 }
-                if (method.isAnnotationPresent(Auth.class)) {
-                    if (request.getSession(false).getAttribute(this.authValue) == null) {
-                        response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized action " + url);
-                        return;
-                    }
-                }
-                if (method.isAnnotationPresent(Profil.class)) {
-                    Profil role = method.getAnnotation(Profil.class);
-                    String roleName = role.value();
-                    if (!request.getSession(false).getAttribute(this.roleValue).equals(roleName)) {
-                        response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized action " + url);
-                        return;
-                    }
-                }
-
-                validateRequestVerb(request, mapping.getVerb(), url);
-
-                Object instance = clazz.getDeclaredConstructor().newInstance();
-                injectSession(instance, request);
-
-                Object[] parameterValues = Utils.getParameterValues(request, response, method, Param.class,
-                        ParamObject.class);
-
-                Object result = method.invoke(instance, parameterValues);
-
-                handleResponse(result, request, response, out, method);
-
-            } catch (Exception e) {
-                response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
-                        "Error processing request: " + e.getMessage());
-                e.printStackTrace();
             }
+            if (clazz.isAnnotationPresent(Profil.class)) {
+                Profil role = clazz.getAnnotation(Profil.class);
+                String roleName = role.value();
+                if (!request.getSession(false).getAttribute(this.roleValue).equals(roleName)) {
+                    response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized action " + url);
+                    return;
+                }
+            }
+
+            Method method = findMethod(clazz, mapping.getMethodName());
+            if (method == null) {
+                response.sendError(HttpServletResponse.SC_BAD_REQUEST,
+                        "Method not found in class: " + clazz.getName());
+                return;
+            }
+
+            if (method.isAnnotationPresent(Auth.class)) {
+                if (request.getSession(false).getAttribute(this.authValue) == null) {
+                    response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized action " + url);
+                    return;
+                }
+            }
+
+            if (method.isAnnotationPresent(Profil.class)) {
+                Profil role = method.getAnnotation(Profil.class);
+                String roleName = role.value();
+                if (!request.getSession(false).getAttribute(this.roleValue).equals(roleName)) {
+                    response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized action " + url);
+                    return;
+                }
+            }
+
+            validateRequestVerb(request, mapping.getVerb(), url);
+
+            Object instance = clazz.getDeclaredConstructor().newInstance();
+            injectSession(instance, request);
+
+            Object[] parameterValues = Utils.getParameterValues(request, response, method, Param.class,
+                    ParamObject.class);
+
+            Object result = method.invoke(instance, parameterValues);
+
+            handleResponse(result, request, response, method);
+
+        } catch (Exception e) {
+            response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
+                    "Error processing request: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
@@ -131,32 +151,74 @@ public class FrontController extends HttpServlet {
     }
 
     private void handleResponse(Object result, HttpServletRequest request, HttpServletResponse response,
-            PrintWriter out, Method method) throws IOException, ServletException {
+            Method method) throws IOException, ServletException {
+        
+        if (method.isAnnotationPresent(CsvExport.class)) {
+            CsvExport csvExport = method.getAnnotation(CsvExport.class);
+            String[] fields = csvExport.fields();
+            String fileName = csvExport.fileName();
+
+            if (result instanceof List<?>) {
+                List<?> list = (List<?>) result;
+                if (!list.isEmpty()) {
+                    Object firstObject = list.get(0);
+                    Class<?> objectClass = firstObject.getClass();
+
+                    if (fields == null || fields.length == 0) {
+                        Field[] declaredFields = objectClass.getDeclaredFields();
+                        fields = new String[declaredFields.length];
+                        for (int i = 0; i < declaredFields.length; i++) {
+                            fields[i] = declaredFields[i].getName();
+                        }
+                    }
+
+                    Utils.generateCsvResponse(list, fields, fileName, response);
+                    return;
+                }
+            }
+
+            response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
+                    "CSV export requires a non-empty List result.");
+            return;
+        }
+
+
         if (method.isAnnotationPresent(ResponseBody.class)) {
             Gson gson = new Gson();
             String jsonResponse = gson.toJson(result);
             response.setContentType("application/json;charset=UTF-8");
-            out.println(jsonResponse);
+            if (!response.isCommitted()) {
+                response.getWriter().write(jsonResponse);
+            }
             return;
         }
 
         if (result instanceof ModelView) {
             ModelView modelView = (ModelView) result;
-            HashMap<String, Object> data = modelView.getData();
-            for (String key : data.keySet()) {
-                request.setAttribute(key, data.get(key));
+            for (Map.Entry<String, Object> entry : modelView.getData().entrySet()) {
+                request.setAttribute(entry.getKey(), entry.getValue());
             }
-            dispatchToPage(modelView.getUrl(), request, response);
+
+            if (!response.isCommitted()) {
+                dispatchToPage(modelView.getUrl(), request, response);
+            } else {
+                String redirectUrl = request.getContextPath() + modelView.getUrl();
+                response.sendRedirect(redirectUrl);
+            }
             return;
         }
 
         if (result instanceof String) {
             String pageUrl = (String) result;
-            dispatchToPage(pageUrl, request, response);
+            if (!response.isCommitted()) {
+                dispatchToPage(pageUrl, request, response);
+            }
             return;
         }
 
-        response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Unsupported return type.");
+        if (!response.isCommitted()) {
+            response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Unsupported return type.");
+        }
     }
 
     private void dispatchToPage(String pageUrl, HttpServletRequest request, HttpServletResponse response)
